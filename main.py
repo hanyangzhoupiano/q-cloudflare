@@ -51,7 +51,7 @@ async def handle_client(websocket):
             driver.quit()
 
 async def main():
-    async with websockets.serve(handle_client, "0.0.0.0", 8765, process_request=process_request):
+    async with websockets.serve(handle_client, "localhost", 8765, process_request=process_request):
         print("WebSocket server running on port 8765")
         await asyncio.Future()
 
