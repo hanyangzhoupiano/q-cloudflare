@@ -4,6 +4,13 @@ import time
 import websockets
 from seleniumbase import Driver
 
+async def process_request(path, request_headers):
+    return (
+        200,
+        Headers({"Content-Type": "text/plain"}),
+        b"OK"
+    )
+
 async def handle_client(websocket):
     last_request = 0
 
@@ -44,7 +51,7 @@ async def handle_client(websocket):
             driver.quit()
 
 async def main():
-    async with websockets.serve(handle_client, "0.0.0.0", 8765):
+    async with websockets.serve(handle_client, "0.0.0.0", 8765, process_request=process_request):
         print("WebSocket server running on port 8765")
         await asyncio.Future()
 
