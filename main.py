@@ -11,62 +11,66 @@ PORT = int(os.environ.get("PORT", 8765))
 HOSTNAME = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
 
 async def process_request(path, request_headers):
-    return (
-        200,
-        Headers({"Content-Type": "text/plain"}),
-        b"OK"
-    )
+    if request_headers.get("Upgrade", "").lower() == "websocket":
+        return None
+    return (200, Headers({"Content-Type": "text/plain"}), b"OK")
 
 async def handle_client(websocket):
     last_request = 0
 
     try:
-        message = await websocket.recv()
-    except Exception:
-        await websocket.close(1008, "No message received")
-        return
+        async for message in websocket:
+            now = time.monotonic()
 
-    now = time.monotonic()
-    if now - last_request < RATE_LIMIT_SECONDS:
-        await websocket.close(1008, "Rate limit exceeded")
-        return
-    last_request = now
+            if now - last_request < RATE_LIMIT_SECONDS:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": "Rate limit exceeded"
+                }))
+                continue
 
-    try:
-        data = json.loads(message)
-    except json.JSONDecodeError:
-        await websocket.close(1008, "Invalid JSON")
-        return
+            last_request = now
 
-    if data.get("type") != "cookie":
-        await websocket.close(1008, "Malformed request")
-        return
-    
-    driver = None
-    try:
-        driver = Driver(uc=True, headless=True)
-        driver.get("https://play.blooket.com/play")
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": "Invalid JSON"
+                }))
+                continue
 
-        cookies = driver.get_cookies()
-        cookie_header = "; ".join(
-            f"{c['name']}={c['value']}" for c in cookies
-        )
+            if data.get("type") != "cookie":
+                continue
 
-        await websocket.send(json.dumps({
-            "type": "cookies",
-            "cookie": cookie_header
-        }))
+            driver = None
+            try:
+                driver = Driver(uc=True, headless=True)
+                driver.get("https://play.blooket.com/play")
 
-    except Exception as e:
-        await websocket.send(json.dumps({
-            "type": "error",
-            "error": str(e)
-        }))
-    finally:
-        if driver:
-            driver.quit()
+                driver.sleep(5)
 
-    await websocket.close(1000, "Done")
+                cookies = driver.get_cookies()
+                cookie_header = "; ".join(
+                    f"{c['name']}={c['value']}" for c in cookies
+                )
+
+                await websocket.send(json.dumps({
+                    "type": "cookies",
+                    "cookie": cookie_header
+                }))
+
+            except Exception as e:
+                await websocket.send(json.dumps({
+                    "type": "error",
+                    "error": str(e)
+                }))
+            finally:
+                if driver:
+                    driver.quit()
+
+    except websockets.exceptions.ConnectionClosed:
+        pass
 
 async def main():
     async with websockets.serve(
